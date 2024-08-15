@@ -6,50 +6,59 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 
+from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
+from itk_dev_shared_components.graph import mail, authentication
+from itk_dev_shared_components.graph.authentication import GraphAccess
 from robot_framework import config
 
 
 def process(orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
+    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
+    graph_credentials = orchestrator_connection.get_credential(config.GRAPH_API)
+    graph_access = authentication.authorize_by_username_password(graph_credentials.username, *graph_credentials.password)
 
-    browser = login(orchestrator_connection)
-    search(browser, "case")
-    numbers = get_phone_numbers(browser, "cpr")
+    # Create a queue from email input
+    emails = mail.get_emails_from_folder("itk-rpa@mkb.aarhus.dk", config.MAIL_SOURCE_FOLDER, graph_access)
+    for email in emails:
+        references, data = _read_input_from_email(email, graph_access)
+        orchestrator_connection.bulk_create_queue_elements(
+            config.QUEUE_NAME,
+            references = references,
+            data = data,
+            created_by = "Robot")
 
+    # Read queue and handle cases
+    return_data = list[list[str]]
+    browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
+    queue_elements_processed = 0
+    while (queue_element := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME)) and queue_elements_processed < config.MAX_TASK_COUNT:
+        # Find a case to add note to
+        case = queue_element.reference
+        cpr = queue_element.data
+        eflyt_search.open_case(browser, case)
+        numbers = _get_phone_numbers(browser, cpr)
+        return_data.append([case, cpr] + numbers)
 
-def login(orchestrator_connection: OrchestratorConnection) -> webdriver.Chrome:
-    browser = webdriver.Chrome()
-    browser.maximize_window()
-
-    eflyt_creds = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
-
-    browser.get("https://notuskommunal.scandihealth.net/")
-    browser.find_element(By.ID, "Login1_UserName").send_keys(eflyt_creds.username)
-    browser.find_element(By.ID, "Login1_Password").send_keys(eflyt_creds.password)
-    browser.find_element(By.ID, "Login1_LoginImageButton").click()
-
-    return browser
-
-
-def search(browser: webdriver.Chrome, case_number: str):
-    """Search for a case and open it.
-
-    Args:
-        browser: The browser object.
-        case_number: The case number to search for.
-    """
-    browser.get("https://notuskommunal.scandihealth.net/web/Supersearch.aspx")
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_imgLogo").click()
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_btnClear").click()
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_txtSagNr").send_keys(case_number)
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_txtdatoFra").send_keys("01-01-2020")
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_txtdatoTo").send_keys("01-01-2030")
-    browser.find_element(By.ID, "ctl00_ContentPlaceHolder1_searchControl_btnSearch").click()
-    browser.execute_script("__doPostBack('ctl00$ContentPlaceHolder1$searchControl$GridViewSearchResult','cmdRowSelected$0')")
+    # Generate a CSV and send it off
 
 
-def get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> tuple[str, str]:
+def _read_input_from_email(email, graph_access: GraphAccess) -> list[list[str], list[str]]:
+    """Read input and return pair of cases and cpr numbers"""
+    attachments = mail.list_email_attachments(email, graph_access)
+    cases = []
+    cprs = []
+    for attachment in attachments:
+        email_attachment = mail.get_attachment_data(attachment, graph_access)
+        lines = email_attachment.read().decode().split(",")
+        for line in lines:
+            cases.append(line[0].strip())
+            cprs.append(line[1].strip().replace("-", ""))
+    return cases, cprs
+
+
+def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> tuple[str, str]:
     """Search for a cpr number on an already open case and extract the phone numbers associated
     with the person.
 

@@ -14,3 +14,10 @@ SCREENSHOT_SENDER = "robot@friend.dk"
 # Constant/Credential names
 ERROR_EMAIL = "Error Email"
 EFLYT_LOGIN = "Eflyt"
+GRAPH_API = "Graph API"
+
+# Email ingest
+MAIL_SOURCE_FOLDER = "Eflyt udsøgning af telefonnumre"
+
+# Orchestrator
+QUEUE_NAME = "Eflyt Udsøgning af Telefonnumre"
