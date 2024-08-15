@@ -1,9 +1,12 @@
 """This module contains the main process of the robot."""
 
 import os
+import csv
+import json
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.common.exceptions import NoSuchElementException
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
@@ -17,7 +20,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     orchestrator_connection.log_trace("Running process.")
     eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     graph_credentials = orchestrator_connection.get_credential(config.GRAPH_API)
-    graph_access = authentication.authorize_by_username_password(graph_credentials.username, *graph_credentials.password)
+    graph_access = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
 
     # Create a queue from email input
     emails = mail.get_emails_from_folder("itk-rpa@mkb.aarhus.dk", config.MAIL_SOURCE_FOLDER, graph_access)
@@ -30,7 +33,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
             created_by = "Robot")
 
     # Read queue and handle cases
-    return_data = list[list[str]]
+    return_data = []
     browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
     queue_elements_processed = 0
     while (queue_element := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME)) and queue_elements_processed < config.MAX_TASK_COUNT:
@@ -38,10 +41,16 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         case = queue_element.reference
         cpr = queue_element.data
         eflyt_search.open_case(browser, case)
-        numbers = _get_phone_numbers(browser, cpr)
-        return_data.append([case, cpr] + numbers)
+        try:
+            numbers = _get_phone_numbers(browser, cpr)
+            return_data.append([cpr, case] + numbers)
+        except NoSuchElementException:
+            return_data.append([cpr, case] + ["no phone found"])
 
     # Generate a CSV and send it off
+    with open('output.csv', mode='w', newline='', encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerows(return_data)
 
 
 def _read_input_from_email(email, graph_access: GraphAccess) -> list[list[str], list[str]]:
@@ -51,14 +60,15 @@ def _read_input_from_email(email, graph_access: GraphAccess) -> list[list[str], 
     cprs = []
     for attachment in attachments:
         email_attachment = mail.get_attachment_data(attachment, graph_access)
-        lines = email_attachment.read().decode().split(",")
+        lines = email_attachment.read().decode().split()
         for line in lines:
-            cases.append(line[0].strip())
-            cprs.append(line[1].strip().replace("-", ""))
+            cpr, case = line.split(",")
+            cases.append(case.strip())
+            cprs.append(cpr.strip().replace("-", ""))
     return cases, cprs
 
 
-def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> tuple[str, str]:
+def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
     """Search for a cpr number on an already open case and extract the phone numbers associated
     with the person.
 
@@ -86,7 +96,13 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> tuple[str, str
     phone_number = browser.find_element(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblTlfnrTxt").text
     mobile_number = browser.find_element(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblMobilTxt").text
 
-    return phone_number, mobile_number
+    numbers = []
+    if phone_number:
+        numbers.append(phone_number)
+    if mobile_number:
+        numbers.append(mobile_number)
+
+    return numbers
 
 
 if __name__ == '__main__':
