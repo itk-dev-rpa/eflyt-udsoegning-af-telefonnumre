@@ -3,6 +3,7 @@
 import os
 import csv
 import json
+import re
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -18,28 +19,28 @@ from robot_framework import config
 def process(orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     graph_credentials = orchestrator_connection.get_credential(config.GRAPH_API)
     graph_access = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
 
     # Create a queue from email input
     emails = mail.get_emails_from_folder("itk-rpa@mkb.aarhus.dk", config.MAIL_SOURCE_FOLDER, graph_access)
     for email in emails:
-        references, data = _read_input_from_email(email, graph_access)
+        cprs, cases, recipient = _read_input_from_email(email, graph_access)
         orchestrator_connection.bulk_create_queue_elements(
             config.QUEUE_NAME,
-            references = references,
-            data = data,
-            created_by = "Robot")
+            references = cprs,
+            data = cases,
+            created_by = recipient)
 
     # Read queue and handle cases
-    return_data = []
+    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
     queue_elements_processed = 0
+    return_data = []
     while (queue_element := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME)) and queue_elements_processed < config.MAX_TASK_COUNT:
         # Find a case to add note to
-        case = queue_element.reference
-        cpr = queue_element.data
+        cpr = queue_element.reference
+        case = queue_element.data
         eflyt_search.open_case(browser, case)
         try:
             numbers = _get_phone_numbers(browser, cpr)
@@ -53,11 +54,12 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         writer.writerows(return_data)
 
 
-def _read_input_from_email(email, graph_access: GraphAccess) -> list[list[str], list[str]]:
+def _read_input_from_email(email: mail.Email, graph_access: GraphAccess) -> tuple[list[str], list[str], str]:
     """Read input and return pair of cases and cpr numbers"""
+    recipient = _get_recipient_from_email(email.body)
     attachments = mail.list_email_attachments(email, graph_access)
-    cases = []
     cprs = []
+    cases = []
     for attachment in attachments:
         email_attachment = mail.get_attachment_data(attachment, graph_access)
         lines = email_attachment.read().decode().split()
@@ -65,7 +67,7 @@ def _read_input_from_email(email, graph_access: GraphAccess) -> list[list[str], 
             cpr, case = line.split(",")
             cases.append(case.strip())
             cprs.append(cpr.strip().replace("-", ""))
-    return cases, cprs
+    return cases, cprs, recipient
 
 
 def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
@@ -105,8 +107,14 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
     return numbers
 
 
+def _get_recipient_from_email(user_data: str) -> str:
+    '''Find email in user_data using regex'''
+    pattern = r"E-mail: (\S+)"
+    return re.findall(pattern, user_data)[0]
+
+
 if __name__ == '__main__':
     conn_string = os.getenv("OpenOrchestratorConnString")
     crypto_key = os.getenv("OpenOrchestratorKey")
-    oc = OrchestratorConnection("Bøde test", conn_string, crypto_key, '{"approved users":["az68933"]}')
+    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, '{"approved users":["az68933"]}')
     process(oc)
