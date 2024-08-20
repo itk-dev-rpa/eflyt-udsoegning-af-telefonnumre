@@ -1,10 +1,14 @@
 """This module contains the main process of the robot."""
 
 import os
-import csv
 import json
-import re
+from dataclasses import dataclass
+from io import BytesIO
+import io
 
+from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.styles import Font
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
@@ -13,61 +17,86 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
 from itk_dev_shared_components.graph import mail, authentication
 from itk_dev_shared_components.graph.authentication import GraphAccess
+from itk_dev_shared_components.smtp import smtp_util
 from robot_framework import config
 
 
-def process(orchestrator_connection: OrchestratorConnection) -> None:
+@dataclass
+class CprCase:
+    """A dataclass representing a pair of CPR and Case numbers"""
+    case: str
+    cpr: str
+    name: str
+    phone_number: list[str] | None
+
+
+@dataclass
+class EmailInput:
+    '''A dataclass representing input from an email'''
+    cpr_cases: list[CprCase]
+    requester: str
+    email: mail.Email | None
+
+
+def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-    graph_credentials = orchestrator_connection.get_credential(config.GRAPH_API)
-    graph_access = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
 
-    # Create a queue from email input
-    emails = mail.get_emails_from_folder("itk-rpa@mkb.aarhus.dk", config.MAIL_SOURCE_FOLDER, graph_access)
-    for email in emails:
-        cprs, cases, recipient = _read_input_from_email(email, graph_access)
-        orchestrator_connection.bulk_create_queue_elements(
-            config.QUEUE_NAME,
-            references = cprs,
-            data = cases,
-            created_by = recipient)
-
-    # Read queue and handle cases
+    # Login
     eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
-    queue_elements_processed = 0
-    return_data = []
-    while (queue_element := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME)) and queue_elements_processed < config.MAX_TASK_COUNT:
-        # Find a case to add note to
-        cpr = queue_element.reference
-        case = queue_element.data
-        eflyt_search.open_case(browser, case)
+
+    if email_data:
+        handle_email(email_data, browser)
+        write_excel(email_data.cpr_cases)
+        send_status_emails(email_data)
+        if email_data.email:
+            mail.delete_email(email_data.email, graph_access)
+        os.remove(config.EMAIL_ATTACHMENT)
+
+
+def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
+    """Handle an email by looking up each pair of CPR and cases in eflyt and adding a phone number to the instance.
+
+    Args:
+        email_input: An EmailInput object containing a list of CPR/Case pairs.
+        browser: A WebDriver to use selenium.
+    """
+    for cpr_case_pair in email_input.cpr_cases:
+        if cpr_case_pair.phone_number is not None:
+            continue
         try:
-            numbers = _get_phone_numbers(browser, cpr)
-            return_data.append([cpr, case] + numbers)
+            eflyt_search.open_case(browser, cpr_case_pair.case)
         except NoSuchElementException:
-            return_data.append([cpr, case] + ["no phone found"])
+            cpr_case_pair.phone_number = ["An error occurred, please check manually."]
+        try:
+            numbers = _get_phone_numbers(browser, cpr_case_pair.cpr)
+            if len(numbers) > 0:
+                cpr_case_pair.phone_number = _get_phone_numbers(browser, cpr_case_pair.cpr)
+            else:
+                cpr_case_pair.phone_number = ["No phone number found."]
+        except NoSuchElementException:
+            cpr_case_pair.phone_number = ["An error occurred, please check manually."]
 
-    # Generate a CSV and send it off
-    with open('output.csv', mode='w', newline='', encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerows(return_data)
 
+def send_status_emails(email: EmailInput):
+    """Send an email to the requesting party and to the controller.
 
-def _read_input_from_email(email: mail.Email, graph_access: GraphAccess) -> tuple[list[str], list[str], str]:
-    """Read input and return pair of cases and cpr numbers"""
-    recipient = _get_recipient_from_email(email.body)
-    attachments = mail.list_email_attachments(email, graph_access)
-    cprs = []
-    cases = []
-    for attachment in attachments:
-        email_attachment = mail.get_attachment_data(attachment, graph_access)
-        lines = email_attachment.read().decode().split()
-        for line in lines:
-            cpr, case = line.split(",")
-            cases.append(case.strip())
-            cprs.append(cpr.strip().replace("-", ""))
-    return cases, cprs, recipient
+    Args:
+        email: The email that has been processed.
+        attachment_location: Where to 
+    """
+    with open(config.EMAIL_ATTACHMENT, "rb") as file:
+        smtp_util.send_email(
+            email.requester,
+            config.EMAIL_STATUS_SENDER,
+            config.EMAIL_COMPLETED_SUBJECT,
+            config.EMAIL_COMPLETED_BODY,
+            config.SMTP_SERVER,
+            config.SMTP_PORT,
+            False,
+            [smtp_util.EmailAttachment(file, config.EMAIL_ATTACHMENT)]
+        )
 
 
 def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
@@ -83,6 +112,7 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
     """
     table = browser.find_element(By.ID, "ctl00_ContentPlaceHolder2_GridViewMovingPersons")
     rows = table.find_elements(By.TAG_NAME, "tr")
+    cpr_in = cpr_in.replace("-", "")
 
     # Remove header row
     rows.pop(0)
@@ -107,14 +137,102 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
     return numbers
 
 
-def _get_recipient_from_email(user_data: str) -> str:
-    '''Find email in user_data using regex'''
-    pattern = r"E-mail: (\S+)"
-    return re.findall(pattern, user_data)[0]
+def write_excel(cases: list[CprCase]) -> BytesIO:
+    """Write a list of task objects to an excel sheet.
+
+    Args:
+        tasks: The list of task objects to write.
+
+    Returns:
+        A BytesIO object containing the Excel sheet.
+    """
+    wb = Workbook()
+    sheet: Worksheet = wb.active
+    header = ["Sagsnr.", "CPR", "Navn", "Telefonnumre"]
+    sheet.append(header)
+
+    # Populate the sheet
+    for cpr_case in cases:
+        phone_numbers = convert_phone_number((cpr_case.phone_number))
+        row = [cpr_case.case, cpr_case.cpr, cpr_case.name, phone_numbers]
+        sheet.append(row)
+
+    # Styling
+    set_column_width(sheet)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+
+    # Save the file
+    file = BytesIO()
+    wb.save(file)
+    with open(config.EMAIL_ATTACHMENT, 'wb') as f:
+        f.write(file.getvalue())
+
+
+def set_column_width(work_sheet: Worksheet):
+    """Adjust column width to the widest content in the worksheet
+
+    Args:
+        work_sheet: The worksheet to mutate
+    """
+    for col in work_sheet.columns:
+        max_length = 0
+        column = col[0].column_letter  # Get the column name
+        for cell in col:
+            if len(str(cell.value)) > max_length:
+                max_length = len(cell.value)
+        adjusted_width = max_length + 2
+        work_sheet.column_dimensions[column].width = adjusted_width
+
+
+def convert_phone_number(phone_numbers: list[str] | None) -> str:
+    """Convert a list of phone numbers to a single string
+
+    Args:
+        phone_numbers: A list of phone numbers
+
+    Returns:
+        A string with all the numbers from the list
+    """
+    if phone_numbers is None:
+        phone_numbers = ""
+    else:
+        phone_numbers = ", ".join(phone_numbers)
+    return phone_numbers
+
+
+def _read_csv(email_attachment: BytesIO) -> list[CprCase]:
+    """Read data from a CSV. Only used for testing.
+
+    Args:
+        email_attachment: Attachment to read from.
+
+    Returns:
+        Return a CPR case with data from attachment.
+    """
+    lines = email_attachment.read().decode().split("\r\n")
+    csv_cases = []
+    for line in lines[1:]:
+        case, cpr, name = line.split(";")
+        csv_cases.append(CprCase(case, cpr, name, None))
+    return csv_cases
 
 
 if __name__ == '__main__':
     conn_string = os.getenv("OpenOrchestratorConnString")
     crypto_key = os.getenv("OpenOrchestratorKey")
-    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, '{"approved users":["az68933"]}')
-    process(oc)
+    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, '')
+
+    graph_credentials = oc.get_credential(config.GRAPH_API)
+    ga = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
+
+    test_csv = input("Please enter path of test data (CSV):\n")
+    return_email = input("Please enter email to receive output:\n")
+
+    test_cases = []
+    with open(test_csv, "rb") as test_file:
+        file_bytes = io.BytesIO(test_file.read())
+        test_cases = _read_csv(file_bytes)
+
+    test_email = EmailInput(test_cases, return_email, None)
+    process(test_email, ga, oc)

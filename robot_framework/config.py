@@ -17,8 +17,14 @@ ERROR_EMAIL = "Error Email"
 EFLYT_LOGIN = "Eflyt"
 GRAPH_API = "Graph API"
 
-# Email ingest
+# Email
 MAIL_SOURCE_FOLDER = "Indbakke/Eflyt udsøgning af telefonnumre"
+# EMAIL_RECEIVER = "debitorstyring@mkb.aarhus.dk"
+EMAIL_RECEIVER = "kriba@aarhus.dk"
+EMAIL_STATUS_SENDER = "itk-rpa@mkb.aarhus.dk"
+EMAIL_COMPLETED_SUBJECT = "RPA: Udsøgning af telefonnumre"
+EMAIL_COMPLETED_BODY = "Listen af telefonnumre er blevet færdigbehandlet og vedhæftet denne mail."
+EMAIL_ATTACHMENT = "eflyt_telefonnumre.xlsx"
 
 # Orchestrator
 QUEUE_NAME = "Eflyt Udsøgning af Telefonnumre"
