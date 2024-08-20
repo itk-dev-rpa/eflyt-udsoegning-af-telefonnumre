@@ -84,7 +84,6 @@ def send_status_emails(email: EmailInput):
 
     Args:
         email: The email that has been processed.
-        attachment_location: Where to 
     """
     with open(config.EMAIL_ATTACHMENT, "rb") as file:
         smtp_util.send_email(
