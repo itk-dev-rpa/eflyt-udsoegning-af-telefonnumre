@@ -50,7 +50,7 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
     if email_data:
         handle_email(email_data, browser)
         write_excel(email_data.cpr_cases)
-        send_status_emails(email_data, recipient)
+        send_status_emails(recipient)
         if email_data.email:
             mail.delete_email(email_data.email, graph_access)
         os.remove(config.EMAIL_ATTACHMENT)
@@ -74,7 +74,7 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
             cpr_case_row.phone_number = ["No phone number found."]
 
 
-def send_status_emails(email: EmailInput, recipient: str):
+def send_status_emails(recipient: str):
     """Send an email to the requesting party and to the controller.
 
     Args:
