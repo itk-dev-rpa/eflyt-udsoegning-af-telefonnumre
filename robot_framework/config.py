@@ -23,7 +23,7 @@ MAIL_SOURCE_FOLDER = "Indbakke/Eflyt udsøgning af telefonnumre"
 EMAIL_RECEIVER = "kriba@aarhus.dk"
 EMAIL_STATUS_SENDER = "itk-rpa@mkb.aarhus.dk"
 EMAIL_COMPLETED_SUBJECT = "RPA: Udsøgning af telefonnumre"
-EMAIL_COMPLETED_BODY = "Listen af telefonnumre er blevet færdigbehandlet og vedhæftet denne mail."
+EMAIL_COMPLETED_BODY = "Robotten til udsøgning af telefonnumre er nu færdig.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder sags- og CPR-numre på navngivne borgere, for hvem robotten har slået op i Notus og udsøgt deres telefonnumre. Bemærk, at robotten kan have mødt fejl i systemet, hvilket vil være noteret i arket.\n\n Mvh. ITK RPA"
 EMAIL_ATTACHMENT = "eflyt_telefonnumre.xlsx"
 
 # Orchestrator

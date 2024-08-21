@@ -51,6 +51,8 @@ def _read_xlsx(email_attachment: BytesIO) -> list[CprCase]:
     iter_ = iter(input_sheet)
     next(iter_)  # Skip header row
     for row in iter_:
+        if row[0].value == "Manuel":
+            continue
         case = CprCase(
             case=row[0].value,
             cpr=row[1].value,
