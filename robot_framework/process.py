@@ -22,8 +22,8 @@ from robot_framework import config
 
 
 @dataclass
-class CprCase:
-    """A dataclass representing a pair of CPR and Case numbers"""
+class CprCaseRow:
+    """A dataclass representing a row from input and output"""
     case: str
     cpr: str
     name: str
@@ -33,7 +33,7 @@ class CprCase:
 @dataclass
 class EmailInput:
     '''A dataclass representing input from an email'''
-    cpr_cases: list[CprCase]
+    cpr_cases: list[CprCaseRow]
     requester: str
     email: mail.Email | None
 
@@ -46,10 +46,12 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
     eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
 
+    recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
+
     if email_data:
         handle_email(email_data, browser)
         write_excel(email_data.cpr_cases)
-        send_status_emails(email_data)
+        send_status_emails(email_data, recipient)
         if email_data.email:
             mail.delete_email(email_data.email, graph_access)
         os.remove(config.EMAIL_ATTACHMENT)
@@ -62,24 +64,22 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
         email_input: An EmailInput object containing a list of CPR/Case pairs.
         browser: A WebDriver to use selenium.
     """
-    for cpr_case_pair in email_input.cpr_cases:
-        if cpr_case_pair.phone_number is not None:
+    for cpr_case_row in email_input.cpr_cases:
+        if cpr_case_row.phone_number is not None:
             continue
         try:
-            eflyt_search.open_case(browser, cpr_case_pair.case)
-        except NoSuchElementException:
-            cpr_case_pair.phone_number = ["An error occurred, please check manually."]
-        try:
-            numbers = _get_phone_numbers(browser, cpr_case_pair.cpr)
+            eflyt_search.open_case(browser, cpr_case_row.case)
+            numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
             if len(numbers) > 0:
-                cpr_case_pair.phone_number = _get_phone_numbers(browser, cpr_case_pair.cpr)
+                cpr_case_row.phone_number = numbers
             else:
-                cpr_case_pair.phone_number = ["No phone number found."]
+                cpr_case_row.phone_number = ["No phone number found."]
         except NoSuchElementException:
-            cpr_case_pair.phone_number = ["An error occurred, please check manually."]
+            # Sometimes, eflyt 
+            cpr_case_row.phone_number = ["An error occurred in eflyt, please check manually."]
 
 
-def send_status_emails(email: EmailInput):
+def send_status_emails(email: EmailInput, recipient: str):
     """Send an email to the requesting party and to the controller.
 
     Args:
@@ -87,10 +87,10 @@ def send_status_emails(email: EmailInput):
     """
     with open(config.EMAIL_ATTACHMENT, "rb") as file:
         smtp_util.send_email(
-            email.requester,
+            recipient,
             config.EMAIL_STATUS_SENDER,
-            config.EMAIL_COMPLETED_SUBJECT,
-            config.EMAIL_COMPLETED_BODY,
+            "RPA: Udsøgning af telefonnumre",
+            "Robotten til udsøgning af telefonnumre er nu færdig.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder sags- og CPR-numre på navngivne borgere, for hvem robotten har slået op i Notus og udsøgt deres telefonnumre. Bemærk, at robotten kan have mødt fejl i systemet, hvilket vil være noteret i arket.\n\n Mvh. ITK RPA",
             config.SMTP_SERVER,
             config.SMTP_PORT,
             False,
@@ -136,7 +136,7 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
     return numbers
 
 
-def write_excel(cases: list[CprCase]) -> BytesIO:
+def write_excel(cases: list[CprCaseRow]) -> BytesIO:
     """Write a list of task objects to an excel sheet.
 
     Args:
@@ -200,7 +200,7 @@ def convert_phone_number(phone_numbers: list[str] | None) -> str:
     return phone_numbers
 
 
-def _read_csv(email_attachment: BytesIO) -> list[CprCase]:
+def _read_csv(email_attachment: BytesIO) -> list[CprCaseRow]:
     """Read data from a CSV. Only used for testing.
 
     Args:
@@ -213,20 +213,20 @@ def _read_csv(email_attachment: BytesIO) -> list[CprCase]:
     csv_cases = []
     for line in lines[1:]:
         case, cpr, name = line.split(";")
-        csv_cases.append(CprCase(case, cpr, name, None))
+        csv_cases.append(CprCaseRow(case, cpr, name, None))
     return csv_cases
 
 
 if __name__ == '__main__':
+    test_csv = input("Please enter path of test data (CSV):\n")
+    return_email = input("Please enter email to receive output:\n")
+
     conn_string = os.getenv("OpenOrchestratorConnString")
     crypto_key = os.getenv("OpenOrchestratorKey")
-    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, '')
+    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, f'{{"return_email": "{return_email}"}}')
 
     graph_credentials = oc.get_credential(config.GRAPH_API)
     ga = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
-
-    test_csv = input("Please enter path of test data (CSV):\n")
-    return_email = input("Please enter email to receive output:\n")
 
     test_cases = []
     with open(test_csv, "rb") as test_file:

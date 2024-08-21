@@ -10,7 +10,7 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from itk_dev_shared_components.graph import mail
 from itk_dev_shared_components.graph.authentication import GraphAccess
 from robot_framework import config
-from robot_framework.process import EmailInput, CprCase
+from robot_framework.process import EmailInput, CprCaseRow
 
 
 def initialize(graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> EmailInput | None:
@@ -28,14 +28,12 @@ def _read_input_from_email(email: mail.Email, graph_access: GraphAccess) -> Emai
     """Read input and return pair of cases and cpr numbers"""
     requester = _get_recipient_from_email(email.body)
     attachments = mail.list_email_attachments(email, graph_access)
-    cpr_cases = []
-    for attachment in attachments:
-        email_attachment = mail.get_attachment_data(attachment, graph_access)
-        cpr_cases = _read_xlsx(email_attachment)
+    email_attachment = mail.get_attachment_data(attachments[0], graph_access)
+    cpr_cases = _read_xlsx(email_attachment)
     return EmailInput(cpr_cases, requester, email)
 
 
-def _read_xlsx(email_attachment: BytesIO) -> list[CprCase]:
+def _read_xlsx(email_attachment: BytesIO) -> list[CprCaseRow]:
     """Read data from XLSX
 
     Args:
@@ -53,7 +51,7 @@ def _read_xlsx(email_attachment: BytesIO) -> list[CprCase]:
     for row in iter_:
         if row[0].value == "Manuel":
             continue
-        case = CprCase(
+        case = CprCaseRow(
             case=row[0].value,
             cpr=row[1].value,
             name=row[2].value,
