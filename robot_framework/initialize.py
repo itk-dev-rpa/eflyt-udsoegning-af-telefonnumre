@@ -19,7 +19,7 @@ def initialize(graph_access: GraphAccess, orchestrator_connection: OrchestratorC
 
     # Create a work list of EmailInput from read emails
     emails = mail.get_emails_from_folder("itk-rpa@mkb.aarhus.dk", config.MAIL_SOURCE_FOLDER, graph_access)
-    if len(emails) > 0:
+    if emails:
         return _read_input_from_email(emails[0], graph_access)
     return None
 
