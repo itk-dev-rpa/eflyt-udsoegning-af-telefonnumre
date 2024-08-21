@@ -11,7 +11,6 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
@@ -67,16 +66,12 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
     for cpr_case_row in email_input.cpr_cases:
         if cpr_case_row.phone_number is not None:
             continue
-        try:
-            eflyt_search.open_case(browser, cpr_case_row.case)
-            numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
-            if len(numbers) > 0:
-                cpr_case_row.phone_number = numbers
-            else:
-                cpr_case_row.phone_number = ["No phone number found."]
-        except NoSuchElementException:
-            # Sometimes, eflyt 
-            cpr_case_row.phone_number = ["An error occurred in eflyt, please check manually."]
+        eflyt_search.open_case(browser, cpr_case_row.case)
+        numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
+        if len(numbers) > 0:
+            cpr_case_row.phone_number = numbers
+        else:
+            cpr_case_row.phone_number = ["No phone number found."]
 
 
 def send_status_emails(email: EmailInput, recipient: str):
