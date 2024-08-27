@@ -40,21 +40,20 @@ class EmailInput:
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-    if not email_data:
-        return
-    # Login
-    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
-    browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
-
-    recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
 
     if email_data:
+        # Login
+        eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
+        browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
+        # Read data
+        recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
         handle_email(email_data, browser)
+        # Generate output
         file = write_excel(email_data.cpr_cases)
         send_status_emails(recipient, file)
-        if email_data.email:
+        # Send email
+        if email_data.email:  # email is None when running simple tests
             mail.delete_email(email_data.email, graph_access)
-        os.remove(config.EMAIL_ATTACHMENT)
 
 
 def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
