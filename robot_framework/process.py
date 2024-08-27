@@ -49,8 +49,8 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
 
     if email_data:
         handle_email(email_data, browser)
-        write_excel(email_data.cpr_cases)
-        send_status_emails(recipient)
+        file = write_excel(email_data.cpr_cases)
+        send_status_emails(recipient, file)
         if email_data.email:
             mail.delete_email(email_data.email, graph_access)
         os.remove(config.EMAIL_ATTACHMENT)
@@ -74,23 +74,22 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
             cpr_case_row.phone_number = ["No phone number found."]
 
 
-def send_status_emails(recipient: str):
+def send_status_emails(recipient: str, file: BytesIO):
     """Send an email to the requesting party and to the controller.
 
     Args:
         email: The email that has been processed.
     """
-    with open(config.EMAIL_ATTACHMENT, "rb") as file:
-        smtp_util.send_email(
-            recipient,
-            config.EMAIL_STATUS_SENDER,
-            "RPA: Udsøgning af telefonnumre",
-            "Robotten til udsøgning af telefonnumre er nu færdig.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder sags- og CPR-numre på navngivne borgere, for hvem robotten har slået op i Notus og udsøgt deres telefonnumre. Bemærk, at robotten kan have mødt fejl i systemet, hvilket vil være noteret i arket.\n\n Mvh. ITK RPA",
-            config.SMTP_SERVER,
-            config.SMTP_PORT,
-            False,
-            [smtp_util.EmailAttachment(file, config.EMAIL_ATTACHMENT)]
-        )
+    smtp_util.send_email(
+        recipient,
+        config.EMAIL_STATUS_SENDER,
+        "RPA: Udsøgning af telefonnumre",
+        "Robotten til udsøgning af telefonnumre er nu færdig.\n\nVedhæftet denne mail finder du et excel-ark, som indeholder sags- og CPR-numre på navngivne borgere, for hvem robotten har slået op i Notus og udsøgt deres telefonnumre. Bemærk, at robotten kan have mødt fejl i systemet, hvilket vil være noteret i arket.\n\n Mvh. ITK RPA",
+        config.SMTP_SERVER,
+        config.SMTP_PORT,
+        False,
+        [smtp_util.EmailAttachment(file, config.EMAIL_ATTACHMENT)]
+    )
 
 
 def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
@@ -159,8 +158,7 @@ def write_excel(cases: list[CprCaseRow]) -> BytesIO:
     # Save the file
     file = BytesIO()
     wb.save(file)
-    with open(config.EMAIL_ATTACHMENT, 'wb') as f:
-        f.write(file.getvalue())
+    return file
 
 
 def set_column_width(work_sheet: Worksheet):
