@@ -40,8 +40,8 @@ class EmailInput:
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-if not email_data:
-    return
+    if not email_data:
+        return
     # Login
     eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
     browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
