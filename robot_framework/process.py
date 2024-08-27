@@ -64,14 +64,14 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
         browser: A WebDriver to use selenium.
     """
     for cpr_case_row in email_input.cpr_cases:
-        if cpr_case_row.phone_number is not None:
+        if cpr_case_row.phone_number is not None or cpr_case_row.case == "Manuel":
             continue
         eflyt_search.open_case(browser, cpr_case_row.case)
         numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
         if len(numbers) > 0:
             cpr_case_row.phone_number = numbers
         else:
-            cpr_case_row.phone_number = ["No phone number found."]
+            cpr_case_row.phone_number = ["N/A"]
 
 
 def send_status_emails(recipient: str, file: BytesIO):
@@ -146,6 +146,8 @@ def write_excel(cases: list[CprCaseRow]) -> BytesIO:
 
     # Populate the sheet
     for cpr_case in cases:
+        if cpr_case.phone_number == ["N/A"] or cpr_case.phone_number is None:  # Skip any entries without a phone number
+            continue
         phone_numbers = convert_phone_number((cpr_case.phone_number))
         row = [cpr_case.case, cpr_case.cpr, cpr_case.name, phone_numbers]
         sheet.append(row)
