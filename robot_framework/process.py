@@ -34,7 +34,7 @@ class EmailInput:
     '''A dataclass representing input from an email'''
     cpr_cases: list[CprCaseRow]
     requester: str
-    email: mail.Email | None
+    email: mail.Email
 
 
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
