@@ -4,8 +4,10 @@
 # pylint: disable=duplicate-code
 
 import sys
+import json
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
+from itk_dev_shared_components.graph import authentication
 
 from robot_framework import initialize
 from robot_framework import reset
@@ -19,14 +21,17 @@ def main():
     orchestrator_connection = OrchestratorConnection.create_connection_from_args()
     sys.excepthook = log_exception(orchestrator_connection)
 
+    graph_credentials = orchestrator_connection.get_credential(config.GRAPH_API)
+    graph_access = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
+
     orchestrator_connection.log_trace("Robot Framework started.")
-    initialize.initialize(orchestrator_connection)
+    email_data = initialize.initialize(graph_access, orchestrator_connection)
 
     error_count = 0
     for _ in range(config.MAX_RETRY_COUNT):
         try:
             reset.reset(orchestrator_connection)
-            process.process(orchestrator_connection)
+            process.process(email_data, graph_access, orchestrator_connection)
             break
 
         # If any business rules are broken the robot should stop entirely.

@@ -2,6 +2,7 @@
 
 # The number of times the robot retries on an error before terminating.
 MAX_RETRY_COUNT = 3
+MAX_TASK_COUNT = 100
 
 # Whether the robot should be marked as failed if MAX_RETRY_COUNT is reached.
 FAIL_ROBOT_ON_TOO_MANY_ERRORS = True
@@ -13,15 +14,13 @@ SCREENSHOT_SENDER = "robot@friend.dk"
 
 # Constant/Credential names
 ERROR_EMAIL = "Error Email"
+EFLYT_LOGIN = "Eflyt"
+GRAPH_API = "Graph API"
 
+# Email
+MAIL_SOURCE_FOLDER = "Indbakke/Eflyt udsøgning af telefonnumre"
+EMAIL_STATUS_SENDER = "itk-rpa@mkb.aarhus.dk"
+EMAIL_ATTACHMENT = "eflyt_telefonnumre.xlsx"
 
-# Queue specific configs
-# ----------------------
-
-# The name of the job queue (if any)
-QUEUE_NAME = None
-
-# The limit on how many queue elements to process
-MAX_TASK_COUNT = 100
-
-# ----------------------
+# Orchestrator
+QUEUE_NAME = "Eflyt Udsøgning af Telefonnumre"
