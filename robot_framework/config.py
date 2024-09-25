@@ -14,7 +14,7 @@ SCREENSHOT_SENDER = "robot@friend.dk"
 
 # Constant/Credential names
 ERROR_EMAIL = "Error Email"
-EFLYT_LOGIN = "Eflyt"
+EFLYT_LOGIN = "Eflyt4"
 GRAPH_API = "Graph API"
 
 # Email
