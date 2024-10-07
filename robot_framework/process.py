@@ -11,7 +11,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
+from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
 from itk_dev_shared_components.graph import mail, authentication
@@ -47,7 +47,7 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
         browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
         # Read data
         recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
-        handle_email(email_data, browser)
+        handle_email(email_data, browser, orchestrator_connection)
         # Generate output
         file = write_excel(email_data.cpr_cases)
         send_status_emails(recipient, file)
@@ -56,22 +56,25 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
             mail.delete_email(email_data.email, graph_access)
 
 
-def handle_email(email_input: EmailInput, browser: webdriver.Chrome) -> None:
+def handle_email(email_input: EmailInput, browser: webdriver.Chrome, orchestrator_connection: OrchestratorConnection) -> None:
     """Handle an email by looking up each pair of CPR and cases in eflyt and adding a phone number to the instance.
 
     Args:
         email_input: An EmailInput object containing a list of CPR/Case pairs.
         browser: A WebDriver to use selenium.
+        orchestrator_connection: Connection used for creating queue elements
     """
     for cpr_case_row in email_input.cpr_cases:
         if cpr_case_row.phone_number is not None or cpr_case_row.case == "Manuel":
             continue
+        queue_id = orchestrator_connection.create_queue_element(config.QUEUE_NAME, cpr_case_row.case).id
         eflyt_search.open_case(browser, cpr_case_row.case)
         numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
         if len(numbers) > 0:
             cpr_case_row.phone_number = numbers
         else:
             cpr_case_row.phone_number = ["N/A"]
+        orchestrator_connection.set_queue_element_status(queue_id, QueueStatus.DONE)
 
 
 def send_status_emails(recipient: str, file: BytesIO):
