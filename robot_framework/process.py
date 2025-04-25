@@ -1,10 +1,8 @@
 """This module contains the main process of the robot."""
 
-import os
 import json
 from dataclasses import dataclass
 from io import BytesIO
-import io
 
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -14,7 +12,7 @@ from selenium.webdriver.common.by import By
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
-from itk_dev_shared_components.graph import mail, authentication
+from itk_dev_shared_components.graph import mail
 from itk_dev_shared_components.graph.authentication import GraphAccess
 from itk_dev_shared_components.smtp import smtp_util
 from robot_framework import config
@@ -199,10 +197,3 @@ def convert_phone_number(phone_numbers: list[str] | None) -> str:
     else:
         phone_numbers = ", ".join(phone_numbers)
     return phone_numbers
-
-
-if __name__ == '__main__':
-    conn_string = os.getenv("OpenOrchestratorConnString")
-    crypto_key = os.getenv("OpenOrchestratorKey")
-    oc = OrchestratorConnection("Telefonnumre Test", conn_string, crypto_key, '{"return_email":"itk-rpa@mkb.aarhus.dk"}')
-    process(oc)
