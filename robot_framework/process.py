@@ -1,10 +1,8 @@
 """This module contains the main process of the robot."""
 
-import os
 import json
 from dataclasses import dataclass
 from io import BytesIO
-import io
 
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -14,7 +12,7 @@ from selenium.webdriver.common.by import By
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
-from itk_dev_shared_components.graph import mail, authentication
+from itk_dev_shared_components.graph import mail
 from itk_dev_shared_components.graph.authentication import GraphAccess
 from itk_dev_shared_components.smtp import smtp_util
 from robot_framework import config
@@ -121,8 +119,11 @@ def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
             cpr_link.click()
             break
 
-    phone_number = browser.find_element(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblTlfnrTxt").text
-    mobile_number = browser.find_element(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblMobilTxt").text
+    # Find the phone numbers if they exists
+    phone_number_fields = browser.find_elements(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblTlfnrTxt")
+    phone_number = phone_number_fields[0].text if phone_number_fields else None
+    mobile_number_fields = browser.find_elements(By.ID, "ctl00_ContentPlaceHolder2_ptFanePerson_stcPersonTab1_lblMobilTxt")
+    mobile_number = mobile_number_fields[0].text if mobile_number_fields else None
 
     numbers = []
     if phone_number:
@@ -196,40 +197,3 @@ def convert_phone_number(phone_numbers: list[str] | None) -> str:
     else:
         phone_numbers = ", ".join(phone_numbers)
     return phone_numbers
-
-
-def _read_csv(email_attachment: BytesIO) -> list[CprCaseRow]:
-    """Read data from a CSV. Only used for testing.
-
-    Args:
-        email_attachment: Attachment to read from.
-
-    Returns:
-        Return a CPR case with data from attachment.
-    """
-    lines = email_attachment.read().decode().split("\r\n")
-    csv_cases = []
-    for line in lines[1:]:
-        case, cpr, name = line.split(";")
-        csv_cases.append(CprCaseRow(case, cpr, name, None))
-    return csv_cases
-
-
-if __name__ == '__main__':
-    test_csv = input("Please enter path of test data (CSV):\n")
-    return_email = input("Please enter email to receive output:\n")
-
-    conn_string = os.getenv("OpenOrchestratorConnString")
-    crypto_key = os.getenv("OpenOrchestratorKey")
-    oc = OrchestratorConnection("Telefon test", conn_string, crypto_key, f'{{"return_email": "{return_email}"}}')
-
-    graph_credentials = oc.get_credential(config.GRAPH_API)
-    ga = authentication.authorize_by_username_password(graph_credentials.username, **json.loads(graph_credentials.password))
-
-    test_cases = []
-    with open(test_csv, "rb") as test_file:
-        file_bytes = io.BytesIO(test_file.read())
-        test_cases = _read_csv(file_bytes)
-
-    test_email = EmailInput(test_cases, return_email, None)
-    process(test_email, ga, oc)
