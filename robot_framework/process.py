@@ -49,10 +49,7 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
         # Read data
         add_phonenumbers_to_queue_elements(email_data, browser, orchestrator_connection)
         recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
-        cases = list[CprCaseRow]
-        while q := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME):
-            cases.append(convert_queue_element_to_cpr_case_row(q))
-            orchestrator_connection.set_queue_element_status(q.id, QueueStatus.DONE)
+        cases = get_cases_from_queue(orchestrator_connection)
         compile_results(cases, recipient, email_data, graph_access)
 
 
@@ -71,6 +68,24 @@ def add_phonenumbers_to_queue_elements(email_input: EmailInput, browser: webdriv
         eflyt_search.open_case(browser, cpr_case_row.case)
         cpr_case_row.phone_numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
         orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=case_reference, data=crypto_util.encrypt_string(json.dumps(asdict(cpr_case_row))))
+
+
+def get_cases_from_queue(orchestrator_connection: OrchestratorConnection) -> list[CprCaseRow]:
+    """Retrieve NEW and IN_PROGRESS queue elements, convert them and add them to a list.
+
+    Args:
+        orchestrator_connection: Connection to use.
+
+    Returns:
+        List of CprCaseRow.
+    """
+    cases = list[CprCaseRow]
+    new_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.NEW)
+    in_progress_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.IN_PROGRESS)
+    for element in new_elements + in_progress_elements:
+        cases.append(convert_queue_element_to_cpr_case_row(element))
+        orchestrator_connection.set_queue_element_status(element.id, QueueStatus.DONE)
+    return cases
 
 
 def convert_queue_element_to_cpr_case_row(queue_element: QueueElement) -> CprCaseRow:
