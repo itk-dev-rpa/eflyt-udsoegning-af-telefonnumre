@@ -1,15 +1,18 @@
-"""This module contains the main process of the robot."""
+"""This module contains the main process of the robot.
+Emails come in through initialize, queue elements are created  and then queue elements are compiled to excel and sent out for each email found."""
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from io import BytesIO
+import hashlib
 
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus
+from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus, QueueElement
+from OpenOrchestrator.common import crypto_util
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
 from itk_dev_shared_components.graph import mail
@@ -24,7 +27,7 @@ class CprCaseRow:
     case: str
     cpr: str
     name: str
-    phone_number: list[str] | None
+    phone_numbers: list[str]
 
 
 @dataclass
@@ -38,23 +41,22 @@ class EmailInput:
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
+    # Login
+    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
+    browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
 
     if email_data:
-        # Login
-        eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
-        browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
         # Read data
+        add_phonenumbers_to_queue_elements(email_data, browser, orchestrator_connection)
         recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
-        handle_email(email_data, browser, orchestrator_connection)
-        # Generate output
-        file = write_excel(email_data.cpr_cases)
-        send_status_emails(recipient, file)
-        # Send email
-        if email_data.email:  # email is None when running simple tests
-            mail.delete_email(email_data.email, graph_access)
+        cases = list[CprCaseRow]
+        while q := orchestrator_connection.get_next_queue_element(config.QUEUE_NAME):
+            cases.append(convert_queue_element_to_cpr_case_row(q))
+            orchestrator_connection.set_queue_element_status(q.id, QueueStatus.DONE)
+        compile_results(cases, recipient, email_data, graph_access)
 
 
-def handle_email(email_input: EmailInput, browser: webdriver.Chrome, orchestrator_connection: OrchestratorConnection) -> None:
+def add_phonenumbers_to_queue_elements(email_input: EmailInput, browser: webdriver.Chrome, orchestrator_connection: OrchestratorConnection) -> None:
     """Handle an email by looking up each pair of CPR and cases in eflyt and adding a phone number to the instance.
 
     Args:
@@ -63,16 +65,41 @@ def handle_email(email_input: EmailInput, browser: webdriver.Chrome, orchestrato
         orchestrator_connection: Connection used for creating queue elements
     """
     for cpr_case_row in email_input.cpr_cases:
-        if cpr_case_row.phone_number is not None or cpr_case_row.case == "Manuel":
+        case_reference = _hash_cpr(cpr_case_row.cpr)
+        if cpr_case_row.phone_numbers is not None or cpr_case_row.case == "Manuel" or any(orchestrator_connection.get_queue_elements(config.QUEUE_NAME, case_reference)):
             continue
-        queue_id = orchestrator_connection.create_queue_element(config.QUEUE_NAME, cpr_case_row.case).id
         eflyt_search.open_case(browser, cpr_case_row.case)
-        numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
-        if len(numbers) > 0:
-            cpr_case_row.phone_number = numbers
-        else:
-            cpr_case_row.phone_number = ["N/A"]
-        orchestrator_connection.set_queue_element_status(queue_id, QueueStatus.DONE)
+        cpr_case_row.phone_numbers = _get_phone_numbers(browser, cpr_case_row.cpr)
+        orchestrator_connection.create_queue_element(config.QUEUE_NAME, reference=case_reference, data=crypto_util.encrypt_string(json.dumps(asdict(cpr_case_row))))
+
+
+def convert_queue_element_to_cpr_case_row(queue_element: QueueElement) -> CprCaseRow:
+    """Convert a QueueElement to a CprCaseRow object.
+
+    Args:
+        queue_element: QueueElement to convert.
+
+    Returns:
+        CprCaseRow with the same data.
+    """
+    data = json.loads(crypto_util.decrypt_string(queue_element.data))
+    cpr_case_row = CprCaseRow(**data)
+    return cpr_case_row
+
+
+def compile_results(cases: list[CprCaseRow], recipient: str, email: mail.Email, graph_access: GraphAccess):
+    """Write excel with results, send a reply with results and remove the email.
+
+    Args:
+        cases: _description_
+        recipient: _description_
+        email: _description_
+        graph_access: _description_
+    """
+    # Generate output
+    file = write_excel(cases)
+    send_status_emails(recipient, file)
+    mail.delete_email(email, graph_access)
 
 
 def send_status_emails(recipient: str, file: BytesIO):
@@ -91,6 +118,10 @@ def send_status_emails(recipient: str, file: BytesIO):
         False,
         [smtp_util.EmailAttachment(file, config.EMAIL_ATTACHMENT)]
     )
+
+
+def _hash_cpr(cpr: str) -> str:
+    return hashlib.sha256(cpr.encode()).hexdigest()
 
 
 def _get_phone_numbers(browser: webdriver.Chrome, cpr_in: str) -> list[str]:
@@ -150,9 +181,9 @@ def write_excel(cases: list[CprCaseRow]) -> BytesIO:
 
     # Populate the sheet
     for cpr_case in cases:
-        if cpr_case.phone_number == ["N/A"] or cpr_case.phone_number is None:  # Skip any entries without a phone number
+        if cpr_case.phone_numbers == ["N/A"] or cpr_case.phone_numbers is None:  # Skip any entries without a phone number
             continue
-        phone_numbers = convert_phone_number((cpr_case.phone_number))
+        phone_numbers = convert_phone_number((cpr_case.phone_numbers))
         row = [cpr_case.case, cpr_case.cpr, cpr_case.name, phone_numbers]
         sheet.append(row)
 
