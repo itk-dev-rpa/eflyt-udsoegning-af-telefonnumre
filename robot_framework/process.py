@@ -41,16 +41,16 @@ class EmailInput:
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
-    # Login
-    eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
-    browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
 
     if email_data:
+        # Login
+        eflyt_credentials = orchestrator_connection.get_credential(config.EFLYT_LOGIN)
+        browser = eflyt_login.login(eflyt_credentials.username, eflyt_credentials.password)
         # Read data
         add_phonenumbers_to_queue_elements(email_data, browser, orchestrator_connection)
         recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
         cases = get_cases_from_queue(orchestrator_connection)
-        compile_results(cases, recipient, email_data, graph_access)
+        compile_results(cases, recipient, email_data.email, graph_access)
 
 
 def add_phonenumbers_to_queue_elements(email_input: EmailInput, browser: webdriver.Chrome, orchestrator_connection: OrchestratorConnection) -> None:
@@ -79,8 +79,8 @@ def get_cases_from_queue(orchestrator_connection: OrchestratorConnection) -> lis
     Returns:
         List of CprCaseRow.
     """
-    cases = list[CprCaseRow]
-    new_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.NEW)
+    cases = []
+    new_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.NEW, limit=999999)
     in_progress_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.IN_PROGRESS)
     for element in new_elements + in_progress_elements:
         cases.append(convert_queue_element_to_cpr_case_row(element))
