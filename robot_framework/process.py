@@ -81,7 +81,7 @@ def get_cases_from_queue(orchestrator_connection: OrchestratorConnection) -> lis
     """
     cases = []
     new_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.NEW, limit=999999)
-    in_progress_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.IN_PROGRESS)
+    in_progress_elements = orchestrator_connection.get_queue_elements(config.QUEUE_NAME, status=QueueStatus.IN_PROGRESS, limit=999999)
     for element in new_elements + in_progress_elements:
         cases.append(convert_queue_element_to_cpr_case_row(element))
         orchestrator_connection.set_queue_element_status(element.id, QueueStatus.DONE)
