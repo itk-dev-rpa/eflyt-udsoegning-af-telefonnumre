@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Robot is now using queue elements.
+- Added event logging.
 
 ## [1.1.1] - 2025-04-25
 

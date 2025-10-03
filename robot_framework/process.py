@@ -13,6 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection, QueueStatus, QueueElement
 from OpenOrchestrator.common import crypto_util
+import itk_dev_event_log
 
 from itk_dev_shared_components.eflyt import eflyt_login, eflyt_search
 from itk_dev_shared_components.graph import mail
@@ -41,6 +42,8 @@ class EmailInput:
 def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrator_connection: OrchestratorConnection) -> None:
     """Do the primary process of the robot."""
     orchestrator_connection.log_trace("Running process.")
+    event_log = orchestrator_connection.get_constant("Event Log")
+    itk_dev_event_log.setup_logging(event_log.value)
 
     if email_data:
         # Login
@@ -50,6 +53,7 @@ def process(email_data: EmailInput | None, graph_access: GraphAccess, orchestrat
         add_phonenumbers_to_queue_elements(email_data, browser, orchestrator_connection)
         recipient = json.loads(orchestrator_connection.process_arguments)["return_email"]
         cases = get_cases_from_queue(orchestrator_connection)
+        itk_dev_event_log.emit(orchestrator_connection.process_name, "Found phonenumbers", len(cases))
         compile_results(cases, recipient, email_data.email, graph_access)
 
 
