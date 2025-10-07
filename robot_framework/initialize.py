@@ -55,7 +55,7 @@ def _read_xlsx(email_attachment: BytesIO) -> list[CprCaseRow]:
             case=row[0].value,
             cpr=row[1].value,
             name=row[2].value,
-            phone_number=None
+            phone_numbers=None
         )
         cases.append(case)
     return cases
